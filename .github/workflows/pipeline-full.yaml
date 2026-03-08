@@ -44,13 +44,13 @@ jobs:
       # dependency:tree does NOT compile — much faster than mvn package
       # https://github.com/semgrep/semgrep-docs/issues/2510
       - name: Generate dependency tree
-        run: mvn --batch-mode dependency:tree -DoutputFile=maven_dep_tree.txt -f victim/pom.xml
+        run: mvn --batch-mode dependency:tree -DoutputFile=maven_dep_tree.txt
 
       - name: Upload dependency tree artifact
         uses: actions/upload-artifact@v4
         with:
           name: mavendeptree
-          path: victim/maven_dep_tree.txt
+          path: maven_dep_tree.txt
           retention-days: 1
 
   semgrep:
