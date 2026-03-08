@@ -1,0 +1,207 @@
+name: Pipeline - Full
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+  schedule:
+    # nightly
+    - cron: 31 10 * * *
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+
+
+jobs:
+
+  dep-tree:
+    if: github.actor != 'dependabot[bot]'
+    name: maven/dep-tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # dependency:tree does NOT compile — much faster than mvn package
+      # https://github.com/semgrep/semgrep-docs/issues/2510
+      - name: Generate dependency tree
+        run: mvn --batch-mode dependency:tree -DoutputFile=maven_dep_tree.txt
+
+      - name: Upload dependency tree artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mavendeptree
+          path: maven_dep_tree.txt
+          retention-days: 1
+
+  semgrep:
+    needs: dep-tree
+    if: github.actor != 'dependabot[bot]'
+    name: semgrep/full
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download Maven dependency tree for SCA
+        uses: actions/download-artifact@v4
+        with:
+          name: mavendeptree
+
+      # Full scan: SAST + SCA (uses dep tree) + Secrets
+      - name: Semgrep full scan
+        run: semgrep ci --sarif > semgrep.sarif
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+  compile:
+    needs: semgrep
+    if: needs.semgrep.result == 'success'
+    name: maven/compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Compile
+        run: mvn --batch-mode compile
+
+      - name: Upload compiled classes
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-classes
+          path: target/classes
+          retention-days: 1
+
+  test:
+    needs: compile
+    if: needs.compile.result == 'success'
+    name: maven/test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Download compiled classes
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-classes
+          path: target/classes
+
+      # -T 1C: parallel test execution across CPU cores
+      - name: Run tests
+        run: mvn --batch-mode -T 1C test
+
+      # Upload test results even on failure
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/surefire-reports/*.xml
+          retention-days: 7
+        if: always()
+
+  package:
+    needs: test
+    # Tests passed — safe to package
+    if: needs.test.result == 'success'
+    name: maven/package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # Tests already passed in test job — skip to save time
+      # -T 1C: parallel module builds
+      - name: Package
+        run: mvn --batch-mode -T 1C package -DskipTests
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+# Artifact naming and retention by trigger:
+#   push: app-<branch>-<run_number>    1 days
+#   schedule: app-nightly-<run_number>   2 days
+#   (default) workflow_dispatch: app-manual-<run_number> 1 days
+          name: >-
+            ${{ github.event_name == 'push' &&
+                format('app-{0}-{1}', github.ref_name, github.run_number) ||
+                github.event_name == 'schedule' &&
+                format('app-nightly-{0}', github.run_number) ||
+                format('app-manual-{0}', github.run_number) }}
+          # Adjust glob if pom.xml packaging produces .jar instead of .war
+          path: target/*.war
+          retention-days: >-
+            ${{ github.event_name == 'push' && 1 ||
+                github.event_name == 'schedule' && 2 ||
+                1 }}
