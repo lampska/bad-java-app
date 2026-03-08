@@ -63,18 +63,20 @@ public class BenchmarkTest00001 extends HttpServlet {
             }
         }
 
-        String fileName = null;
+        String fileName2 = null;
         java.io.FileInputStream fis = null;
 
         try {
-            fileName = org.owasp.benchmark.helpers.Utils.TESTFILES_DIR + param;
-            fis = new java.io.FileInputStream(new java.io.File(fileName));
+            // This is where the path traversal vulnerability occurs.
+            // The user input is used directly in the file path without any validation or sanitization.
+            fileName2 = org.owasp.benchmark.helpers.Utils.TESTFILES_DIR + param;
+            fis = new java.io.FileInputStream(new java.io.File(fileName2));
             byte[] b = new byte[1000];
             int size = fis.read(b);
             response.getWriter()
                     .println(
                             "The beginning of file: '"
-                                    + org.owasp.esapi.ESAPI.encoder().encodeForHTML(fileName)
+                                    + org.owasp.esapi.ESAPI.encoder().encodeForHTML(fileName2)
                                     + "' is:\n\n"
                                     + org.owasp
                                             .esapi
@@ -82,7 +84,7 @@ public class BenchmarkTest00001 extends HttpServlet {
                                             .encoder()
                                             .encodeForHTML(new String(b, 0, size)));
         } catch (Exception e) {
-            System.out.println("Couldn't open FileInputStream on file: '" + fileName + "'");
+            System.out.println("Couldn't open FileInputStream on file: '" + fileName2 + "'");
             response.getWriter()
                     .println(
                             "Problem getting FileInputStream: "
