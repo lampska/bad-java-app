@@ -58,7 +58,7 @@ jobs:
 
       # Compile only
       - name: Compile
-        run: mvn --batch-mode compile
+        run: mvn --batch-mode compile -Dspotless.skip=true
 
       # Pass compiled classes to test job. Avoids recompiling on fresh runner
       - name: Upload compiled classes

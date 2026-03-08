@@ -104,7 +104,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Compile
-        run: mvn --batch-mode compile
+        run: mvn --batch-mode compile -Dspotless.skip=true
 
       - name: Upload compiled classes
         uses: actions/upload-artifact@v4
