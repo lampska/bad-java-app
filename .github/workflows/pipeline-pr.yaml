@@ -20,6 +20,7 @@ jobs:
       image: semgrep/semgrep
     env:
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      SEMGREP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
     ## Non-blocking
     # continue-on-error: true
     steps:
