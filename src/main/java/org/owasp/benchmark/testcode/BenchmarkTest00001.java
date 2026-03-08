@@ -67,6 +67,8 @@ public class BenchmarkTest00001 extends HttpServlet {
         java.io.FileInputStream fis = null;
 
         try {
+            // This is where the path traversal vulnerability occurs.
+            // The user input is used directly in the file path without any validation or sanitization.
             fileName = org.owasp.benchmark.helpers.Utils.TESTFILES_DIR + param;
             fis = new java.io.FileInputStream(new java.io.File(fileName));
             byte[] b = new byte[1000];
